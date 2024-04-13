@@ -4,9 +4,9 @@ import {
   login,
   logout,
   register,
-} from "../controllers/auth.controllers";
-import { verifyJWT, verifyPermission } from "../middleware/auth.middlewares";
-import { getMyVehicles } from "../controllers/user.controllers";
+} from "../controllers/auth.controllers.js";
+import { verifyJWT, verifyPermission } from "../middleware/auth.middlewares.js";
+import { getMyVehicles } from "../controllers/user.controllers.js";
 
 const router = Router();
 
