@@ -5,8 +5,8 @@ import {
   ACCESS_TOKEN_EXPIRY,
   ACCESS_TOKEN_SECRET,
   NODE_ENV,
-} from "../config/server.config";
-import { asyncHandler } from "../utils/asyncHandler";
+} from "../config/server.config.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 import { getDB } from "../db/index.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
