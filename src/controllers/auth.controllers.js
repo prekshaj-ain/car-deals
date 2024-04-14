@@ -318,10 +318,7 @@ export const changePassword = asyncHandler(async (req, res) => {
     throw new ApiError(404, "not found");
   }
   // Check current password
-  const isPasswordValid = await bcrypt.compare(
-    currentPassword,
-    details.password
-  );
+  const isPasswordValid = await bcrypt.compare(oldPassword, details.password);
   if (!isPasswordValid) {
     throw new ApiError(401, "Invalid current password");
   }
