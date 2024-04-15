@@ -6,7 +6,7 @@ import {
   getAllDeals,
   performDealTransaction,
 } from "../controllers/car.controllers.js";
-
+import { upload } from "../middleware/multer.middleware.js";
 const router = Router();
 
 // * Common Routes
@@ -27,5 +27,10 @@ router
 
 router
   .route("/buy")
-  .post(verifyJWT, verifyPermission(["user"]), performDealTransaction);
+  .post(
+    upload.none(),
+    verifyJWT,
+    verifyPermission(["user"]),
+    performDealTransaction
+  );
 export default router;

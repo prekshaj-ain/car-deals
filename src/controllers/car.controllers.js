@@ -6,7 +6,7 @@ import { ApiError } from "../utils/ApiError.js";
 
 export const getAllCars = asyncHandler(async (req, res) => {
   const db = getDB();
-  const cars = await db.collection("cars").find();
+  const cars = await db.collection("cars").find({}).toArray();
   return res
     .status(200)
     .json(new ApiResponse(200, cars, "All cars fetched successfully"));
@@ -15,12 +15,12 @@ export const getAllCars = asyncHandler(async (req, res) => {
 export const getAllDealerships = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const db = getDB();
-  const dealershipsWithCar = db
+  const dealershipsWithCar = await db
     .collection("dealerships")
     .aggregate([
       {
         $match: {
-          cars: { $elemMatch: { $eq: ObjectId(id) } },
+          cars: { $elemMatch: { $eq: new ObjectId(id) } },
         },
       },
       {
@@ -45,14 +45,17 @@ export const getAllDealerships = asyncHandler(async (req, res) => {
 export const getAllDeals = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const db = getDB();
-  const dealsWithCar = db.collection("deals").find({ car_id: id });
+  const dealsWithCar = await db
+    .collection("deals")
+    .find({ car_id: id })
+    .toArray();
 
   res
     .status(200)
     .json(
       new ApiResponse(
         200,
-        dealershipsWithCar,
+        dealsWithCar,
         "Deals with the specified car fetched successfully"
       )
     );
@@ -60,14 +63,10 @@ export const getAllDeals = asyncHandler(async (req, res) => {
 
 export const performDealTransaction = asyncHandler(async (req, res) => {
   const { id: user_email } = req.user;
-  const { deal_id } = req.body;
+  const { deal_id: _id } = req.body;
   const db = getDB();
-  if (deal_id.trim().length == 0) {
+  if (_id.trim().length == 0) {
     throw new ApiError(400, "deal id is required");
-  }
-  const user = await db.collection("users").findOne({ user_email });
-  if (!user) {
-    throw new ApiError("User not found");
   }
   // start a client session
   const transactionOptions = {
@@ -79,28 +78,34 @@ export const performDealTransaction = asyncHandler(async (req, res) => {
   const session = client.startSession();
   session.startTransaction(transactionOptions);
   try {
-    const deal = await db.collection("deals").findOne({ deal_id });
+    const deal = await db.collection("deals").find({ _id });
     if (!deal) {
       throw new ApiError(404, "deal not found");
     }
-    if (deal.deal_info.completed == true) {
+    if (deal.deal_info?.completed == true) {
       throw new ApiError(400, "deal is not available");
     }
-    const car = await db.collection("cars").findOne({ car_id: deal.car_info });
+    const car = await db.collection("cars").findOne({ car_id: deal.car_id });
     if (!car) {
       throw new ApiError(404, "car not found");
     }
 
     const dealership = await db
       .collection("dealerships")
-      .findOne({ deals: deal.deal_id });
+      .findOne({ deals: deal._id });
     if (!dealership) {
       throw new ApiError(400, "dealership not found");
+    }
+    const dealershipHasCar = dealership.cars.some((objectId) =>
+      objectId.equals(car._id)
+    );
+    if (!dealershipHasCar) {
+      throw new ApiError(404, "Car not found in dealership inventory");
     }
     // create new sold_vehicle entry
     const sold_vehicle = {
       vehicle_id: new ObjectId(),
-      car_id: car.car_id,
+      car_id: car._id,
       vehicle_info: {
         sold_date: new Date(),
       },
@@ -110,31 +115,31 @@ export const performDealTransaction = asyncHandler(async (req, res) => {
     await db
       .collection("dealerships")
       .updateOne(
-        { _id: ObjectId(dealership.dealership_id) },
-        { $addToSet: { sold_vehicles: soldVehicle.vehicle_id } },
+        { _id: new ObjectId(dealership.dealership_id) },
+        { $addToSet: { sold_vehicles: sold_vehicle.vehicle_id } },
         { session }
       );
     await db
       .collection("users")
       .updateOne(
-        { _id: ObjectId(user.user_email) },
-        { $addToSet: { vehicle_info: soldVehicle.vehicle_id } },
+        { user_email },
+        { $addToSet: { vehicle_info: sold_vehicle.vehicle_id } },
         { session }
       );
     //Remove the car from dealership's cars array
     await db
       .collection("dealerships")
       .updateOne(
-        { _id: ObjectId(dealership.dealership_id) },
-        { $pull: { cars: ObjectId(car.car_id) } },
+        { dealership_id: new ObjectId(dealership.dealership_id) },
+        { $pull: { cars: new ObjectId(car._id) } },
         { session }
       );
     // Update deal_info in deals collection
     await db
       .collection("deals")
       .updateOne(
-        { _id: ObjectId(deal_id) },
-        { $set: { "deal_info.completed": true } },
+        { _id: new ObjectId(deal._id) },
+        { $set: { deal_info: { completed: true } } },
         { session }
       );
     // Commit the transaction
