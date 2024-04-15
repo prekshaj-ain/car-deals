@@ -7,12 +7,13 @@ import {
 } from "../controllers/auth.controllers.js";
 import { verifyJWT, verifyPermission } from "../middleware/auth.middlewares.js";
 import { getMyVehicles } from "../controllers/user.controllers.js";
+import { upload } from "../middleware/multer.middleware.js";
 
 const router = Router();
 
 // Unsecured route
-router.route("/register").post(register);
-router.route("/login").post(login);
+router.route("/register").post(upload.none(), register);
+router.route("/login").post(upload.none(), login);
 
 // secure route
 router.route("/logout").get(verifyJWT, logout);

@@ -1,8 +1,8 @@
 import jwt from "jsonwebtoken";
-import { ApiError } from "../utils/ApiError";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ACCESS_TOKEN_SECRET } from "../config/server.config";
-import { getDB } from "../db";
+import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ACCESS_TOKEN_SECRET } from "../config/server.config.js";
+import { getDB } from "../db/index.js";
 
 export const verifyJWT = asyncHandler(async (req, res, next) => {
   const token =
@@ -48,7 +48,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 });
 
 export const verifyPermission = (roles = []) => {
-  asyncHandler(async (req, res, next) => {
+  return asyncHandler(async (req, res, next) => {
     if (!req.user?.id) {
       throw new ApiError(401, "Unauthorized request");
     }

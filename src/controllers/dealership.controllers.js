@@ -1,23 +1,24 @@
-import { getDB } from "../db";
-import { ObjectId } from "bson";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ApiError } from "../utils/ApiError";
-import { ApiResponse } from "../utils/ApiResponse";
+import { getDB } from "../db/index.js";
+import mongodb, { ObjectId } from "mongodb";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { ApiError } from "../utils/ApiError.js";
 
 export const addCar = asyncHandler(async (req, res) => {
   const { type, name, model, car_info } = req.body;
+  if ([type, name, model].some((field) => field.trim().length == 0)) {
+    throw new ApiError(400, "type, name, model is required");
+  }
   const dealership_email = req.user?.id;
   const db = getDB();
   // create a new car
   const newCar = {
-    car_id: new ObjectId(),
     type,
     name,
     model,
-    car_info,
+    car_info: { ...car_info },
   };
-  await db.collection("cars").insertOne(newCar);
-
+  const car = await db.collection("cars").insertOne(newCar);
   const dealership = await db
     .collection("dealerships")
     .findOne({ dealership_email });
@@ -27,12 +28,10 @@ export const addCar = asyncHandler(async (req, res) => {
   // Add the car to the dealership's cars list
   await db
     .collection("dealerships")
-    .updateOne({ dealership_email }, { $push: { cars: newCar.car_id } });
+    .updateOne({ dealership_email }, { $push: { cars: car.insertedId } });
   res
     .status(200)
-    .json(
-      new ApiResponse(200, { newCar }, "Car added to dealership successfully")
-    );
+    .json(new ApiResponse(200, newCar, "Car added to dealership successfully"));
 });
 
 export const addDeal = asyncHandler(async (req, res) => {
@@ -48,24 +47,28 @@ export const addDeal = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Dealership not found");
   }
   // Check if the car exists in the dealership's cars
-  const carExists = dealership.cars.includes(car_id);
+  const carIdToCheck = new ObjectId(car_id);
+
+  const carExists = dealership.cars.some((objectId) =>
+    objectId.equals(carIdToCheck)
+  );
+
   if (!carExists) {
     throw new ApiError(400, "Car not found in dealership's inventory");
   }
   // Create a new deal
   const newDeal = {
-    deal_id: new ObjectId(),
     car_id,
-    deal_info,
+    deal_info: { ...deal_info },
   };
 
   // Insert the new deal into the deals collection
-  await db.collection("deals").insertOne(newDeal);
+  const deal = await db.collection("deals").insertOne(newDeal);
 
   //   add the deal to dealership deals list
   await db
     .collection("dealerships")
-    .updateOne({ dealership_email }, { $push: { deals: newDeal.deal_id } });
+    .updateOne({ dealership_email }, { $push: { deals: deal.insertedId } });
 
   res
     .status(200)
@@ -85,13 +88,12 @@ export const getSoldVehicles = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Dealership not found");
   }
   const soldVehicleIds = dealership.sold_vehicles;
-  const vehicleObjectIds = soldVehicleIds.map((id) => ObjectId(id));
   const soldVehiclesWithOwners = await db
     .collection("sold_vehicles")
     .aggregate([
       {
         $match: {
-          vehicle_id: { $in: vehicleInfoObjectIds }, // Match sold vehicle's vehicle_id with vehicle_info list of IDs
+          vehicle_id: { $in: soldVehicleIds }, // Match sold vehicle's vehicle_id with vehicle_info list of IDs
         },
       },
       {
@@ -99,20 +101,19 @@ export const getSoldVehicles = asyncHandler(async (req, res) => {
           from: "users",
           localField: "vehicle_id",
           foreignField: "vehicle_info",
-          as: "owners_info", // Assuming multiple owners per vehicle are possible
+          as: "owner_info",
         },
       },
       {
-        $addField: {
-          owners_info: {
-            $first: "$owners_info",
+        $addFields: {
+          owner_info: {
+            $first: "$owner_info",
           },
         },
       },
       {
         $project: {
           _id: 0, // Exclude _id field from results
-          vehicle_id: 1,
           vehicle_info: 1,
           owners_info: 1,
         },
@@ -126,16 +127,17 @@ export const getSoldVehicles = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         soldVehiclesWithOwners,
-        "Sold vehicles with owner info retrieved successfully"
+        "Sold vehicles with owner info fetched successfully"
       )
     );
 });
 
 export const getDealsFromDealership = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const db = getDB();
   const dealership = await db
     .collection("dealerships")
-    .findOne({ dealership_id: ObjectId(id) });
+    .findOne({ dealership_id: new ObjectId(id) });
   if (!dealership) {
     throw new ApiError(404, "Dealership not found");
   }
@@ -158,18 +160,19 @@ export const getDealsFromDealership = asyncHandler(async (req, res) => {
 
 export const getCarsFromDealership = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const db = getDB();
   const dealership = await db
     .collection("dealerships")
-    .findOne({ dealership_id: ObjectId(id) });
+    .findOne({ dealership_id: new ObjectId(id) });
   if (!dealership) {
     throw new ApiError(404, "Dealership not found");
   }
   const carIds = dealership.cars;
-  // Fetch all cars from the deals collection where car_id matches any of the ObjectId values
+  // Fetch all cars from the deals collection where _id matches any of the ObjectId values
   const carsFromDealership = await db
     .collection("cars")
     .find({
-      car_id: { $in: carIds },
+      _id: { $in: carIds },
     })
     .toArray();
 
