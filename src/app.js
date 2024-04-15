@@ -1,8 +1,10 @@
 import cookieParser from "cookie-parser";
 import express from "express";
 import cors from "cors";
-import userRouter from "./routes/user.routes";
-import dealershipRouter from "./routes/dealership.routes";
+import userRouter from "./routes/user.routes.js";
+import dealershipRouter from "./routes/dealership.routes.js";
+import carRouter from "./routes/car.routes.js";
+import { errorHandler } from "./utils/errorHandler.js";
 const app = express();
 
 app.use(
@@ -22,5 +24,8 @@ app.use(cookieParser());
 // routes
 app.use("/api/users", userRouter);
 app.use("/api/dealerships", dealershipRouter);
+app.use("/api/cars", carRouter);
+
+app.use(errorHandler);
 
 export default app;
