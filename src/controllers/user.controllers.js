@@ -1,7 +1,7 @@
-import { getDB } from "../db";
-import { ApiError } from "../utils/ApiError";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
+import { getDB } from "../db/index.js";
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const getMyVehicles = asyncHandler(async (req, res) => {
   const user_email = req.user?.id;
@@ -13,13 +13,35 @@ export const getMyVehicles = asyncHandler(async (req, res) => {
 
   const vehicleIds = user.vehicle_info;
 
-  // Fetch all vehicles from the cars collection where car_id matches any of the vehicle IDs
+  // Fetch all vehicles from the cars collection where _id matches any of the vehicle IDs
   const vehiclesOwnedByUser = await db
-    .collection("cars")
+    .collection("sold_vehicles")
     .aggregate([
       {
         $match: {
-          car_id: { $in: vehicleIds },
+          vehicle_id: { $in: vehicleIds },
+        },
+      },
+      {
+        $lookup: {
+          from: "cars",
+          localField: "car_id",
+          foreignField: "_id",
+          as: "car_details",
+        },
+      },
+      {
+        $addFields: {
+          car_details: {
+            $first: "$car_details",
+          },
+        },
+      },
+      {
+        $project: {
+          vehicle_id: 0,
+          _id: 0,
+          car_id: 0,
         },
       },
     ])
@@ -30,7 +52,7 @@ export const getMyVehicles = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         vehiclesOwnedByUser,
-        "Vehicles owned by user retrieved successfully"
+        "Vehicles owned by user fetched successfully"
       )
     );
 });
