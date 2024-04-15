@@ -63,62 +63,65 @@ export const getAllDeals = asyncHandler(async (req, res) => {
 
 export const performDealTransaction = asyncHandler(async (req, res) => {
   const { id: user_email } = req.user;
-  const { deal_id: _id } = req.body;
+  const { deal_id: dealId } = req.body;
   const db = getDB();
-  if (_id.trim().length == 0) {
-    throw new ApiError(400, "deal id is required");
+
+  // Validate input
+  if (!dealId.trim()) {
+    throw new ApiError(400, "Deal ID is required");
   }
-  // start a client session
-  const transactionOptions = {
-    readPreference: "primary",
-    readConcern: { level: "snapshot" },
-    writeConcern: { w: "majority" },
-    maxCommitTimeMS: 1000,
-  };
+
   const session = client.startSession();
-  session.startTransaction(transactionOptions);
+  session.startTransaction();
+
   try {
-    const deal = await db.collection("deals").find({ _id });
+    // Find the deal
+    const deal = await db
+      .collection("deals")
+      .findOne({ _id: new ObjectId(dealId) });
     if (!deal) {
-      throw new ApiError(404, "deal not found");
-    }
-    if (deal.deal_info?.completed == true) {
-      throw new ApiError(400, "deal is not available");
-    }
-    const car = await db.collection("cars").findOne({ car_id: deal.car_id });
-    if (!car) {
-      throw new ApiError(404, "car not found");
+      throw new ApiError(404, "Deal not found");
     }
 
+    // Check if deal is already completed
+    if (deal.deal_info?.completed) {
+      throw new ApiError(400, "Deal is not available");
+    }
+
+    // Find the dealership with the deal
     const dealership = await db
       .collection("dealerships")
       .findOne({ deals: deal._id });
     if (!dealership) {
-      throw new ApiError(400, "dealership not found");
+      throw new ApiError(400, "Dealership not found");
     }
-    const dealershipHasCar = dealership.cars.some((objectId) =>
-      objectId.equals(car._id)
+
+    // Validate if the car is in the dealership's inventory
+    const carExistsInInventory = dealership.cars.some((objId) =>
+      objId.equals(deal.car_id)
     );
-    if (!dealershipHasCar) {
+    if (!carExistsInInventory) {
       throw new ApiError(404, "Car not found in dealership inventory");
     }
-    // create new sold_vehicle entry
+
+    // Create a new sold vehicle entry
     const sold_vehicle = {
       vehicle_id: new ObjectId(),
-      car_id: car._id,
-      vehicle_info: {
-        sold_date: new Date(),
-      },
+      car_id: new Object(deal.car_id),
+      vehicle_info: { sold_date: new Date() },
     };
     await db.collection("sold_vehicles").insertOne(sold_vehicle, { session });
-    // Add the sold_vehicle to dealership and user
-    await db
-      .collection("dealerships")
-      .updateOne(
-        { _id: new ObjectId(dealership.dealership_id) },
-        { $addToSet: { sold_vehicles: sold_vehicle.vehicle_id } },
-        { session }
-      );
+
+    // Add the sold vehicle to dealership and user
+    await db.collection("dealerships").updateOne(
+      { _id: new ObjectId(dealership._id) },
+      {
+        $addToSet: { sold_vehicles: sold_vehicle.vehicle_id },
+        $pull: { cars: new ObjectId(deal.car_id) },
+      },
+      { session }
+    );
+
     await db
       .collection("users")
       .updateOne(
@@ -126,29 +129,22 @@ export const performDealTransaction = asyncHandler(async (req, res) => {
         { $addToSet: { vehicle_info: sold_vehicle.vehicle_id } },
         { session }
       );
-    //Remove the car from dealership's cars array
-    await db
-      .collection("dealerships")
-      .updateOne(
-        { dealership_id: new ObjectId(dealership.dealership_id) },
-        { $pull: { cars: new ObjectId(car._id) } },
-        { session }
-      );
-    // Update deal_info in deals collection
+
+    // Update deal_info to mark deal as completed
     await db
       .collection("deals")
       .updateOne(
         { _id: new ObjectId(deal._id) },
-        { $set: { deal_info: { completed: true } } },
+        { $set: { "deal_info.completed": true } },
         { session }
       );
+
     // Commit the transaction
     await session.commitTransaction();
 
     console.log("Transaction committed successfully");
   } catch (err) {
     await session.abortTransaction();
-    console.error("Transaction aborted:", err.message);
     if (err instanceof ApiError) {
       throw new ApiError(err.statusCode, err.message);
     } else {
